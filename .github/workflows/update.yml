@@ -5,6 +5,10 @@ on:
     - cron: "*/30 * * * *"  # every 30 minutes
   workflow_dispatch:
 
+# 👇 this is the part that fixes the permission error
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
