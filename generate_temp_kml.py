@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 Builds a live KML NetworkLink for the NOAA NDFD CONUS temperature layer
-using the **current UTC hour** as the 'time' parameter.
-This avoids relying on dimension values in GetCapabilities.
+using the current UTC hour minus one hour, which guarantees the timestamp
+exists on the WMS server.
 """
 
 import datetime
@@ -13,9 +13,9 @@ LAYER = "ndfd.conus.temp"
 OUTPUT_KML = "conus_temp_live.kml"
 
 def build_kml():
-    # Use current UTC hour (rounded down)
+    # Use the current UTC hour minus 1 hour
     now = datetime.datetime.utcnow().replace(minute=0, second=0, microsecond=0)
-    time_value = now.isoformat() + "Z"
+    time_value = (now - datetime.timedelta(hours=1)).isoformat() + "Z"
 
     bbox = "-14200679.12,2500000,-7400000,6505689.94"  # EPSG:3857 CONUS
     href = (
@@ -48,6 +48,7 @@ def build_kml():
       <screenXY  x="0.02" y="0.02" xunits="fraction" yunits="fraction"/>
       <size      x="0"  y="0" xunits="pixels" yunits="pixels"/>
     </ScreenOverlay>
+
   </Document>
 </kml>
 """
