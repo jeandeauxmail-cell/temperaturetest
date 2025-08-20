@@ -12,8 +12,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      # 👉 Check out the gh-pages branch (not main)
-      - name: Checkout (gh-pages branch)
+      # Check out the main branch to get the script
+      - name: Checkout main branch
         uses: actions/checkout@v3
         with:
           ref: main
@@ -29,9 +29,15 @@ jobs:
       - name: Generate KML
         run: python generate_temp_kml.py
 
-      - name: Commit and push
-        uses: stefanzweifel/git-auto-commit-action@v5
+      # Switch to gh-pages and commit the generated files
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
         with:
-          commit_message: "Update live CONUS temperature KML"
-          branch: gh-pages
-          file_pattern: conus_temp_live.kml
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: .
+          publish_branch: gh-pages
+          keep_files: false
+          allow_empty_commit: false
+          force_orphan: false
+          enable_jekyll: false
+          exclude_assets: '.github,*.py,README.md'
