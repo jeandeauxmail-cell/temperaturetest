@@ -9,14 +9,33 @@ import json
 from datetime import datetime, timezone
 import urllib.parse
 
-# NDFD ImageServer endpoint
-BASE_URL = "https://idpgis.ncep.noaa.gov/arcgis/rest/services/NDFDTemps/CONUS_Temp/ImageServer"
+# Current working NDFD endpoints (try in order of preference)
+ENDPOINTS = [
+    "https://mapservices.weather.noaa.gov/raster/rest/services/NDFD/NDFD_temp/MapServer",
+    "https://nowcoast.noaa.gov/arcgis/rest/services/nowcoast/forecast_meteoceanhydro_sfc_ndfd_time/MapServer",
+    "https://idpgis.ncep.noaa.gov/arcgis/rest/services/NWS_Forecasts_Guidance_Warnings/NDFD_temp/MapServer"
+]
 OUTPUT_KML = "conus_temp_live.kml"
 
-def get_latest_time():
+def find_working_endpoint():
+    """Find the first working NDFD endpoint"""
+    for base_url in ENDPOINTS:
+        try:
+            info_url = f"{base_url}?f=pjson"
+            resp = requests.get(info_url, timeout=15)
+            if resp.status_code == 200:
+                print(f"Using endpoint: {base_url}")
+                return base_url
+        except Exception as e:
+            print(f"Endpoint {base_url} failed: {e}")
+            continue
+    
+    raise Exception("No working NDFD endpoints found!")
+
+def get_latest_time(base_url):
     """Get the most recent available timestamp from the service"""
     try:
-        info_url = f"{BASE_URL}?f=pjson"
+        info_url = f"{base_url}?f=pjson"
         resp = requests.get(info_url, timeout=30)
         resp.raise_for_status()
         data = resp.json()
@@ -29,9 +48,11 @@ def get_latest_time():
             start_ms, end_ms = time_extent[0], time_extent[1]
             # Use the end time (most recent)
             dt = datetime.fromtimestamp(end_ms / 1000.0, tz=timezone.utc)
+            print(f"Service time range: {datetime.fromtimestamp(start_ms/1000.0, tz=timezone.utc)} to {dt}")
             return int(end_ms)  # Return as milliseconds for the API
         else:
             # Fallback: use current time
+            print("No time extent found, using current time")
             now = datetime.now(timezone.utc)
             return int(now.timestamp() * 1000)
             
@@ -41,23 +62,30 @@ def get_latest_time():
         now = datetime.now(timezone.utc)
         return int(now.timestamp() * 1000)
 
-def build_image_url(time_ms):
+def build_image_url(base_url, time_ms):
     """Build the proper image export URL"""
+    # Check if it's a MapServer or ImageServer
+    if "ImageServer" in base_url:
+        export_endpoint = f"{base_url}/exportImage"
+    else:
+        export_endpoint = f"{base_url}/export"
+    
     # Parameters for the image request
     params = {
-        'bbox': '-130,20,-60,55',  # Slightly larger bbox to ensure full CONUS coverage
+        'bbox': '-130,20,-60,55',  # CONUS bounding box
         'size': '1200,800',        # Higher resolution
         'format': 'png',
         'f': 'image',
         'transparent': 'false',    # Set to false for better visibility
         'time': str(time_ms),
         'imageSR': '4326',         # WGS84 coordinate system
-        'bboxSR': '4326'
+        'bboxSR': '4326',
+        'layers': 'show:0'         # Show first layer (temperature)
     }
     
     # Build URL with proper encoding
     query_string = urllib.parse.urlencode(params)
-    return f"{BASE_URL}/exportImage?{query_string}"
+    return f"{export_endpoint}?{query_string}"
 
 def create_kml(image_url, timestamp_ms):
     """Create the KML content with proper GroundOverlay structure"""
