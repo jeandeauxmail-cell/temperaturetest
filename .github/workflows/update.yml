@@ -4,34 +4,128 @@ on:
   schedule:
     - cron: "*/30 * * * *"  # every 30 minutes
   workflow_dispatch:
+  push:
+    branches: [ main ]
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 jobs:
-  build:
+  generate-kml:
     runs-on: ubuntu-latest
+    
     steps:
-      # Check out the main branch to get the script
-      - name: Checkout main branch
-        uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
-          ref: main
+          fetch-depth: 0  # Get full history for better debugging
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: "3.11"
 
-      - name: Install requests
-        run: pip install requests
+      - name: Install dependencies
+        run: |
+          pip install requests urllib3 certifi
+          pip list  # Show installed packages
 
-      - name: Generate KML
-        run: python generate_temp_kml.py
+      - name: Generate KML files
+        id: generate
+        run: |
+          echo "Starting KML generation..."
+          python generate_temp_kml.py
+          
+          # Check if files were created
+          if [ -f "conus_temp_live.kml" ]; then
+            echo "✓ Main KML file created"
+            echo "kml_created=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Main KML file not created"
+            echo "kml_created=false" >> $GITHUB_OUTPUT
+          fi
+          
+          if [ -f "network_link.kml" ]; then
+            echo "✓ Network link KML created"
+            echo "network_created=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Network link KML not created"
+            echo "network_created=false" >> $GITHUB_OUTPUT
+          fi
 
-      # Switch to gh-pages and commit the generated files
+      - name: Validate KML files
+        if: steps.generate.outputs.kml_created == 'true'
+        run: |
+          echo "Validating KML files..."
+          
+          # Check file sizes
+          if [ -f "conus_temp_live.kml" ]; then
+            size=$(wc -c < conus_temp_live.kml)
+            echo "Main KML size: $size bytes"
+            if [ $size -lt 500 ]; then
+              echo "⚠️ Warning: KML file seems too small"
+            fi
+          fi
+          
+          # Basic XML validation (check if it starts with XML declaration)
+          if head -1 conus_temp_live.kml | grep -q "<?xml"; then
+            echo "✓ KML appears to be valid XML"
+          else
+            echo "⚠️ Warning: KML may not be valid XML"
+          fi
+
+      - name: Create status page
+        run: |
+          # Create a simple HTML status page
+          cat > status.html << 'EOF'
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>CONUS Temperature KML Status</title>
+            <meta charset="UTF-8">
+            <meta http-equiv="refresh" content="1800">
+            <style>
+              body { font-family: Arial, sans-serif; margin: 40px; }
+              .status { padding: 10px; margin: 10px 0; border-radius: 5px; }
+              .success { background-color: #d4edda; border: 1px solid #c3e6cb; }
+              .error { background-color: #f8d7da; border: 1px solid #f5c6cb; }
+              .info { background-color: #cce8ff; border: 1px solid #99d3ff; }
+            </style>
+          </head>
+          <body>
+            <h1>CONUS Temperature KML Status</h1>
+          EOF
+          
+          echo "<div class='info'>Last updated: $(date -u)</div>" >> status.html
+          
+          if [ -f "conus_temp_live.kml" ]; then
+            echo "<div class='success'>✓ Main KML file available</div>" >> status.html
+            echo "<p><a href='conus_temp_live.kml'>Download Main KML</a></p>" >> status.html
+          else
+            echo "<div class='error'>❌ Main KML file not available</div>" >> status.html
+          fi
+          
+          if [ -f "network_link.kml" ]; then
+            echo "<div class='success'>✓ Network Link KML available</div>" >> status.html
+            echo "<p><a href='network_link.kml'>Download Network Link KML</a> (Use this in Google Earth)</p>" >> status.html
+          else
+            echo "<div class='error'>❌ Network Link KML not available</div>" >> status.html
+          fi
+          
+          echo "<h2>Usage Instructions</h2>" >> status.html
+          echo "<ol>" >> status.html
+          echo "<li>Download the Network Link KML file</li>" >> status.html
+          echo "<li>Open Google Earth</li>" >> status.html
+          echo "<li>File > Open > Select the network_link.kml file</li>" >> status.html
+          echo "<li>The temperature layer will appear and auto-refresh every 30 minutes</li>" >> status.html
+          echo "</ol>" >> status.html
+          echo "</body></html>" >> status.html
+
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
+        if: steps.generate.outputs.kml_created == 'true'
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: .
@@ -40,4 +134,19 @@ jobs:
           allow_empty_commit: false
           force_orphan: false
           enable_jekyll: false
-          exclude_assets: '.github,*.py,README.md'
+          exclude_assets: '.github,*.py,README.md,.git*'
+          
+      - name: Report status
+        if: always()
+        run: |
+          echo "=== Generation Summary ==="
+          echo "KML created: ${{ steps.generate.outputs.kml_created }}"
+          echo "Network KML created: ${{ steps.generate.outputs.network_created }}"
+          
+          if [ "${{ steps.generate.outputs.kml_created }}" == "true" ]; then
+            echo "✓ SUCCESS: Files should be available at:"
+            echo "  https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/network_link.kml"
+          else
+            echo "❌ FAILED: Check logs for errors"
+            exit 1
+          fi
