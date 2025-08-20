@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-Fixed version: Fetches the latest NDFD temperature data and generates a proper KML 
-with GroundOverlay that works reliably in Google Earth.
+Improved NDFD temperature KML generator with better error handling and multiple service options
 """
 
 import requests
@@ -10,90 +9,174 @@ from datetime import datetime, timezone
 import urllib.parse
 import xml.sax.saxutils
 
-# Current working NDFD endpoints (try in order of preference)
-BASE_URL = "https://mapservices.weather.noaa.gov/raster/rest/services/NDFD/NDFD_temp/MapServer"
+# Multiple NDFD endpoints to try (in order of preference)
+NDFD_ENDPOINTS = [
+    "https://mapservices.weather.noaa.gov/raster/rest/services/NDFD/NDFD_temp/MapServer",
+    "https://nowcoast.noaa.gov/arcgis/rest/services/nowcoast/forecast_meteoceanhydro_sfc_ndfd_time/MapServer",
+    "https://idpgis.ncep.noaa.gov/arcgis/rest/services/NWS_Forecasts_Guidance_Warnings/NDFD_temp/MapServer"
+]
 
 OUTPUT_KML = "conus_temp_live.kml"
+NETWORK_KML = "network_link.kml"
 
-def get_latest_time(base_url):
-    """Get the most recent available timestamp from the service"""
+def test_service_endpoint(base_url):
+    """Test if a service endpoint is working"""
     try:
         info_url = f"{base_url}?f=pjson"
-        resp = requests.get(info_url, timeout=30)
+        resp = requests.get(info_url, timeout=15)
         resp.raise_for_status()
         data = resp.json()
         
-        # Get time extent info
-        time_info = data.get("timeInfo", {})
-        time_extent = time_info.get("timeExtent", [])
+        print(f"✓ Service active: {base_url}")
+        print(f"  Service name: {data.get('mapName', 'Unknown')}")
         
-        if len(time_extent) >= 2:
-            start_ms, end_ms = time_extent[0], time_extent[1]
-            # Use the end time (most recent)
-            dt = datetime.fromtimestamp(end_ms / 1000.0, tz=timezone.utc)
-            print(f"Service time range: {datetime.fromtimestamp(start_ms/1000.0, tz=timezone.utc)} to {dt}")
-            return int(end_ms)  # Return as milliseconds for the API
-        else:
-            # Fallback: use current time
-            print("No time extent found, using current time")
-            now = datetime.now(timezone.utc)
-            return int(now.timestamp() * 1000)
+        # Check for layers
+        layers = data.get('layers', [])
+        print(f"  Available layers: {len(layers)}")
+        for layer in layers[:3]:  # Show first 3 layers
+            print(f"    - {layer.get('name', 'Unknown')} (ID: {layer.get('id', 'N/A')})")
+        
+        return True, data
+    except Exception as e:
+        print(f"✗ Service failed: {base_url} - {e}")
+        return False, None
+
+def get_working_endpoint():
+    """Find the first working NDFD endpoint"""
+    for endpoint in NDFD_ENDPOINTS:
+        print(f"\nTesting endpoint: {endpoint}")
+        working, service_info = test_service_endpoint(endpoint)
+        if working:
+            return endpoint, service_info
+    
+    raise Exception("No working NDFD endpoints found!")
+
+def get_latest_time(base_url, service_info):
+    """Get the most recent available timestamp from the service"""
+    try:
+        # Check if service has time info
+        time_info = service_info.get("timeInfo", {})
+        if time_info:
+            time_extent = time_info.get("timeExtent", [])
+            if len(time_extent) >= 2:
+                start_ms, end_ms = time_extent[0], time_extent[1]
+                dt = datetime.fromtimestamp(end_ms / 1000.0, tz=timezone.utc)
+                print(f"Service time range ends at: {dt}")
+                return int(end_ms)
+        
+        # Alternative: check individual layers for time info
+        layers = service_info.get('layers', [])
+        for layer in layers:
+            if 'timeInfo' in layer:
+                layer_time = layer['timeInfo'].get('timeExtent', [])
+                if len(layer_time) >= 2:
+                    end_ms = layer_time[1]
+                    dt = datetime.fromtimestamp(end_ms / 1000.0, tz=timezone.utc)
+                    print(f"Layer {layer['id']} time ends at: {dt}")
+                    return int(end_ms)
+        
+        # Fallback: use current time
+        print("No time extent found, using current time")
+        now = datetime.now(timezone.utc)
+        return int(now.timestamp() * 1000)
             
     except Exception as e:
         print(f"Error getting time info: {e}")
-        # Fallback: use current time
         now = datetime.now(timezone.utc)
         return int(now.timestamp() * 1000)
 
-def build_image_url(base_url, time_ms):
-    """Build a simpler image export URL that's XML-friendly"""
-    # Use the MapServer export endpoint with minimal parameters
+def build_image_url(base_url, time_ms, service_info):
+    """Build the image export URL with proper parameters"""
     export_endpoint = f"{base_url}/export"
     
-    # Simplified parameters - avoid complex URL encoding
+    # Get the first temperature layer
+    temp_layer_id = 0
+    layers = service_info.get('layers', [])
+    for layer in layers:
+        name = layer.get('name', '').lower()
+        if 'temp' in name and 'max' not in name and 'min' not in name:
+            temp_layer_id = layer.get('id', 0)
+            print(f"Using temperature layer: {layer.get('name')} (ID: {temp_layer_id})")
+            break
+    
+    # Build parameters
     params = {
-        'bbox': '-130,20,-60,55',    # No URL encoding needed for simple numbers
-        'size': '800,600',           # Smaller size, simple numbers
+        'bbox': '-130,20,-60,55',  # CONUS bounds
+        'size': '1024,768',        # Good resolution
         'format': 'png',
         'f': 'image',
-        'layers': 'show:0',          # Just show first layer
-        'imageSR': '4326',
-        'bboxSR': '4326'
+        'layers': f'show:{temp_layer_id}',
+        'imageSR': '4326',         # WGS84
+        'bboxSR': '4326',
+        'transparent': 'true',
+        'dpi': '96'
     }
     
-    # Only add time if we have a valid timestamp - and keep it simple
-    if time_ms and str(time_ms) != 'None':
-        # Round timestamp to avoid long numbers
-        rounded_time = int(time_ms / 1000) * 1000
-        params['time'] = str(rounded_time)
+    # Add time parameter if available
+    if time_ms and time_ms > 0:
+        params['time'] = str(int(time_ms))
     
-    # Build URL manually to avoid urllib's aggressive encoding
-    param_parts = []
-    for key, value in params.items():
-        param_parts.append(f"{key}={value}")
-    
-    query_string = "&".join(param_parts)
-    return f"{export_endpoint}?{query_string}"
+    return f"{export_endpoint}?" + urllib.parse.urlencode(params)
 
-def create_kml(image_url, timestamp_ms):
+def test_image_url(image_url):
+    """Test if the image URL returns valid data"""
+    try:
+        print(f"Testing image URL...")
+        resp = requests.get(image_url, timeout=30)
+        print(f"Status: {resp.status_code}")
+        print(f"Content-Type: {resp.headers.get('content-type')}")
+        print(f"Content-Length: {len(resp.content)} bytes")
+        
+        if resp.status_code == 200:
+            content_type = resp.headers.get('content-type', '').lower()
+            if 'image' in content_type:
+                print("✓ Valid image response!")
+                return True
+            elif 'json' in content_type or 'text' in content_type:
+                # Might be an error response
+                print(f"Response text: {resp.text[:500]}")
+                return False
+        
+        return resp.status_code == 200
+        
+    except Exception as e:
+        print(f"Error testing image URL: {e}")
+        return False
+
+def create_kml(image_url, timestamp_ms, service_name="NDFD"):
     """Create the KML content with proper GroundOverlay structure"""
     
     # Convert timestamp for display
     dt = datetime.fromtimestamp(timestamp_ms / 1000.0, tz=timezone.utc)
     time_str = dt.strftime("%Y-%m-%d %H:%M UTC")
     
+    # XML escape the URL
+    safe_image_url = xml.sax.saxutils.escape(image_url)
+    
     kml_content = f'''<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2">
   <Document>
     <name>CONUS Temperature - {time_str}</name>
-    <description>Live NDFD temperature data for Continental United States</description>
+    <description>Live {service_name} temperature data for Continental United States. Updates every 30 minutes.</description>
+    
+    <Style id="tempStyle">
+      <ListStyle>
+        <ItemIcon>
+          <href>https://maps.google.com/mapfiles/kml/paddle/T.png</href>
+        </ItemIcon>
+      </ListStyle>
+    </Style>
     
     <!-- Temperature Ground Overlay -->
     <GroundOverlay>
       <name>Temperature Data</name>
-      <description>NDFD Temperature - Updated: {time_str}</description>
+      <description>Current Temperature - Updated: {time_str}</description>
+      <styleUrl>#tempStyle</styleUrl>
       <Icon>
-        <href>{image_url}</href>
+        <href>{safe_image_url}</href>
+        <refreshMode>onInterval</refreshMode>
+        <refreshInterval>1800</refreshInterval>
+        <viewRefreshMode>never</viewRefreshMode>
       </Icon>
       <LatLonBox>
         <north>55</north>
@@ -102,21 +185,23 @@ def create_kml(image_url, timestamp_ms):
         <west>-130</west>
         <rotation>0</rotation>
       </LatLonBox>
-      <color>aaffffff</color>
+      <color>ccffffff</color>
+      <drawOrder>10</drawOrder>
     </GroundOverlay>
     
     <!-- Temperature Legend -->
     <ScreenOverlay>
       <name>Temperature Legend</name>
+      <description>Temperature scale in Fahrenheit</description>
       <Icon>
         <href>https://digital.weather.gov/staticpages/legend/tempscale_conus.png</href>
       </Icon>
       <overlayXY x="0" y="1" xunits="fraction" yunits="fraction"/>
       <screenXY x="0.02" y="0.98" xunits="fraction" yunits="fraction"/>
-      <size x="0" y="0" xunits="pixels" yunits="pixels"/>
+      <size x="200" y="0" xunits="pixels" yunits="fraction"/>
     </ScreenOverlay>
     
-    <!-- View settings -->
+    <!-- Default view -->
     <LookAt>
       <longitude>-98</longitude>
       <latitude>39</latitude>
@@ -124,6 +209,7 @@ def create_kml(image_url, timestamp_ms):
       <range>4000000</range>
       <tilt>0</tilt>
       <heading>0</heading>
+      <altitudeMode>absolute</altitudeMode>
     </LookAt>
     
   </Document>
@@ -131,101 +217,91 @@ def create_kml(image_url, timestamp_ms):
     
     return kml_content
 
-def main():
-    """Main execution function"""
-    print("Finding working NDFD temperature endpoint...")
-    
-    try:
-        # Use the working endpoint
-        base_url = BASE_URL
-        
-        # Get the latest timestamp
-        latest_time_ms = get_latest_time(base_url)
-        print(f"Using timestamp: {latest_time_ms}")
-        
-        # Build the image URL
-        image_url = build_image_url(base_url, latest_time_ms)
-        print(f"Testing image URL: {image_url}")
-        
-        # Test if the image URL works with better debugging
-        test_resp = requests.get(image_url, timeout=30)
-        print(f"Response status: {test_resp.status_code}")
-        print(f"Response headers: {dict(test_resp.headers)}")
-        
-        if test_resp.status_code == 200:
-            print(f"✓ Image URL working! Content-Type: {test_resp.headers.get('content-type')}")
-            print(f"Image size: {len(test_resp.content)} bytes")
-        else:
-            print(f"✗ Image URL failed with status {test_resp.status_code}")
-            print(f"Response text: {test_resp.text[:200]}...")
-            
-            # Try a simpler request without time parameter
-            simple_params = {
-                'bbox': '-130,20,-60,55',
-                'size': '800,600',
-                'format': 'png',
-                'f': 'image',
-                'transparent': 'true',
-                'imageSR': '4326',
-                'bboxSR': '4326',
-                'layers': 'show:0'
-            }
-            simple_url = f"{base_url}/export?" + urllib.parse.urlencode(simple_params)
-            print(f"Trying simpler URL: {simple_url}")
-            
-            simple_resp = requests.get(simple_url, timeout=30)
-            if simple_resp.status_code == 200:
-                print("✓ Simple URL works! Using this instead.")
-                image_url = simple_url
-            else:
-                print(f"✗ Simple URL also failed: {simple_resp.status_code}")
-                print("Proceeding with original URL anyway...")
-        
-        print(f"Final image URL: {image_url[:100]}...")
-        
-        # Generate KML
-        print(f"Raw image URL: {image_url}")
-        kml_content = create_kml(image_url, latest_time_ms)
-        
-        # Skip XML validation - just write the file and let Google Earth handle it
-        print("Skipping XML validation - Google Earth is more forgiving than Python's XML parser")
-        
-        # Write to file
-        with open(OUTPUT_KML, 'w', encoding='utf-8') as f:
-            f.write(kml_content)
-        
-        print(f"Successfully wrote {OUTPUT_KML}")
-        print(f"File size: {len(kml_content)} bytes")
-        
-        # Also create a network link KML for GitHub Pages
-        network_kml = f'''<?xml version="1.0" encoding="UTF-8"?>
+def create_network_link_kml(github_username, repo_name):
+    """Create a network link KML for GitHub Pages"""
+    network_kml = f'''<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2">
   <Document>
     <name>Live CONUS Temperature</name>
+    <description>Auto-updating temperature data from NOAA NDFD</description>
+    
     <NetworkLink>
-      <name>Temperature Data</name>
+      <name>CONUS Temperature Data</name>
+      <description>Updates every 30 minutes</description>
       <refreshVisibility>0</refreshVisibility>
       <flyToView>1</flyToView>
       <Link>
-        <href>https://jeandeauxmail-cell.github.io/temperaturetest/conus_temp_live.kml</href>
+        <href>https://{github_username}.github.io/{repo_name}/conus_temp_live.kml</href>
         <refreshMode>onInterval</refreshMode>
         <refreshInterval>1800</refreshInterval>
+        <viewRefreshMode>never</viewRefreshMode>
       </Link>
     </NetworkLink>
+    
   </Document>
 </kml>'''
+    
+    return network_kml
+
+def main():
+    """Main execution function"""
+    print("=" * 60)
+    print("NDFD Temperature KML Generator")
+    print("=" * 60)
+    
+    try:
+        # Find working endpoint
+        base_url, service_info = get_working_endpoint()
+        service_name = service_info.get('mapName', 'NDFD')
         
-        with open('network_link.kml', 'w', encoding='utf-8') as f:
-            f.write(network_kml)
-        print("Also created network_link.kml for GitHub Pages")
+        # Get latest timestamp
+        latest_time_ms = get_latest_time(base_url, service_info)
+        print(f"\nUsing timestamp: {latest_time_ms}")
+        
+        # Build image URL
+        image_url = build_image_url(base_url, latest_time_ms, service_info)
+        print(f"\nGenerated image URL:")
+        print(f"{image_url}")
+        
+        # Test the image URL
+        if not test_image_url(image_url):
+            print("\n⚠️  Image URL test failed, but proceeding anyway...")
+            print("Google Earth might still be able to load it.")
+        
+        # Generate main KML
+        kml_content = create_kml(image_url, latest_time_ms, service_name)
+        
+        with open(OUTPUT_KML, 'w', encoding='utf-8') as f:
+            f.write(kml_content)
+        
+        print(f"\n✓ Successfully created {OUTPUT_KML}")
+        print(f"  File size: {len(kml_content):,} bytes")
+        
+        # Generate network link KML (update with your GitHub info)
+        network_content = create_network_link_kml("jeandeauxmail-cell", "temperaturetest")
+        
+        with open(NETWORK_KML, 'w', encoding='utf-8') as f:
+            f.write(network_content)
+        
+        print(f"✓ Successfully created {NETWORK_KML}")
+        
+        print("\n" + "=" * 60)
+        print("SUCCESS! Files generated:")
+        print(f"  - {OUTPUT_KML} (main data file)")
+        print(f"  - {NETWORK_KML} (for linking in Google Earth)")
+        print("\nTo use:")
+        print("  1. Open Google Earth")
+        print(f"  2. File > Open > {NETWORK_KML}")
+        print("  3. The layer will auto-refresh every 30 minutes")
+        print("=" * 60)
+        
+        return True
         
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"\n❌ Error: {e}")
         import traceback
         traceback.print_exc()
         return False
-    
-    return True
 
 if __name__ == "__main__":
     success = main()
