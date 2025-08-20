@@ -13,22 +13,7 @@ import urllib.parse
 BASE_URL = "https://mapservices.weather.noaa.gov/raster/rest/services/NDFD/NDFD_temp/MapServer"
 
 OUTPUT_KML = "conus_temp_live.kml"
-'''
-def find_working_endpoint():
-    """Find the first working NDFD endpoint"""
-    for base_url in ENDPOINTS:
-        try:
-            info_url = f"{base_url}?f=pjson"
-            resp = requests.get(info_url, timeout=15)
-            if resp.status_code == 200:
-                print(f"Using endpoint: {base_url}")
-                return base_url
-        except Exception as e:
-            print(f"Endpoint {base_url} failed: {e}")
-            continue
-    
-    raise Exception("No working NDFD endpoints found!")
-'''
+
 def get_latest_time(base_url):
     """Get the most recent available timestamp from the service"""
     try:
@@ -61,24 +46,25 @@ def get_latest_time(base_url):
 
 def build_image_url(base_url, time_ms):
     """Build the proper image export URL"""
-    # Check if it's a MapServer or ImageServer
-    if "ImageServer" in base_url:
-        export_endpoint = f"{base_url}/exportImage"
-    else:
-        export_endpoint = f"{base_url}/export"
+    # Use the MapServer export endpoint
+    export_endpoint = f"{base_url}/export"
     
-    # Parameters for the image request
+    # Parameters for the image request - key fix: specify the correct layers
     params = {
         'bbox': '-130,20,-60,55',  # CONUS bounding box
         'size': '1200,800',        # Higher resolution
         'format': 'png',
         'f': 'image',
-        'transparent': 'false',    # Set to false for better visibility
-        'time': str(time_ms),
+        'transparent': 'true',     # Changed to true for proper overlay
         'imageSR': '4326',         # WGS84 coordinate system
         'bboxSR': '4326',
-        'layers': 'show:0'         # Show first layer (temperature)
+        'layers': 'show:0,1,2',    # Show temperature layers (TempF layers)
+        'dpi': '96'
     }
+    
+    # Only add time if we have a valid timestamp
+    if time_ms and str(time_ms) != 'None':
+        params['time'] = str(time_ms)
     
     # Build URL with proper encoding
     query_string = urllib.parse.urlencode(params)
@@ -103,8 +89,6 @@ def create_kml(image_url, timestamp_ms):
       <description>NDFD Temperature - Updated: {time_str}</description>
       <Icon>
         <href>{image_url}</href>
-        <refreshMode>onExpire</refreshMode>
-        <refreshInterval>1800</refreshInterval>
       </Icon>
       <LatLonBox>
         <north>55</north>
@@ -113,7 +97,7 @@ def create_kml(image_url, timestamp_ms):
         <west>-130</west>
         <rotation>0</rotation>
       </LatLonBox>
-      <color>ccffffff</color>
+      <color>aaffffff</color>
     </GroundOverlay>
     
     <!-- Temperature Legend -->
@@ -147,7 +131,7 @@ def main():
     print("Finding working NDFD temperature endpoint...")
     
     try:
-        # Find a working endpoint
+        # Use the working endpoint
         base_url = BASE_URL
         
         # Get the latest timestamp
@@ -156,20 +140,41 @@ def main():
         
         # Build the image URL
         image_url = build_image_url(base_url, latest_time_ms)
-        print(f"Testing image URL...")
+        print(f"Testing image URL: {image_url}")
         
-        # Test if the image URL works
-        test_resp = requests.head(image_url, timeout=30)
-        if test_resp.status_code != 200:
-            print(f"Warning: Image URL returned status {test_resp.status_code}")
-            # Try without the time parameter as fallback
-            image_url_no_time = build_image_url(base_url, None).replace('&time=None', '')
-            test_resp2 = requests.head(image_url_no_time, timeout=30)
-            if test_resp2.status_code == 200:
-                image_url = image_url_no_time
-                print("Using image URL without time parameter")
+        # Test if the image URL works with better debugging
+        test_resp = requests.get(image_url, timeout=30)
+        print(f"Response status: {test_resp.status_code}")
+        print(f"Response headers: {dict(test_resp.headers)}")
+        
+        if test_resp.status_code == 200:
+            print(f"✓ Image URL working! Content-Type: {test_resp.headers.get('content-type')}")
+            print(f"Image size: {len(test_resp.content)} bytes")
+        else:
+            print(f"✗ Image URL failed with status {test_resp.status_code}")
+            print(f"Response text: {test_resp.text[:200]}...")
+            
+            # Try a simpler request without time parameter
+            simple_params = {
+                'bbox': '-130,20,-60,55',
+                'size': '800,600',
+                'format': 'png',
+                'f': 'image',
+                'transparent': 'true',
+                'imageSR': '4326',
+                'bboxSR': '4326',
+                'layers': 'show:0'
+            }
+            simple_url = f"{base_url}/export?" + urllib.parse.urlencode(simple_params)
+            print(f"Trying simpler URL: {simple_url}")
+            
+            simple_resp = requests.get(simple_url, timeout=30)
+            if simple_resp.status_code == 200:
+                print("✓ Simple URL works! Using this instead.")
+                image_url = simple_url
             else:
-                print(f"Both URLs failed. Proceeding anyway...")
+                print(f"✗ Simple URL also failed: {simple_resp.status_code}")
+                print("Proceeding with original URL anyway...")
         
         print(f"Final image URL: {image_url[:100]}...")
         
