@@ -8,6 +8,7 @@ import requests
 import json
 from datetime import datetime, timezone
 import urllib.parse
+import xml.sax.saxutils
 
 # Current working NDFD endpoints (try in order of preference)
 BASE_URL = "https://mapservices.weather.noaa.gov/raster/rest/services/NDFD/NDFD_temp/MapServer"
@@ -179,7 +180,14 @@ def main():
         print(f"Final image URL: {image_url[:100]}...")
         
         # Generate KML
+        print(f"Raw image URL: {image_url}")
         kml_content = create_kml(image_url, latest_time_ms)
+        
+        # Debug: Show the problematic line
+        lines = kml_content.split('\n')
+        if len(lines) >= 12:
+            print(f"Line 12 content: {lines[11]}")
+            print(f"Characters around column 134: '{lines[11][130:140]}'")
         
         # Validate XML before writing
         try:
@@ -188,7 +196,21 @@ def main():
             print("✓ KML XML is valid!")
         except ET.ParseError as e:
             print(f"✗ KML XML validation failed: {e}")
-            return False
+            # Try alternative escaping approach
+            print("Trying alternative URL encoding...")
+            
+            # Use CDATA section for the URL instead
+            escaped_url = f"<![CDATA[{image_url}]]>"
+            alt_kml = kml_content.replace(f"<href>{xml.sax.saxutils.escape(image_url)}</href>", 
+                                       f"<href>{escaped_url}</href>")
+            
+            try:
+                ET.fromstring(alt_kml)
+                print("✓ Alternative CDATA encoding works!")
+                kml_content = alt_kml
+            except ET.ParseError as e2:
+                print(f"✗ CDATA encoding also failed: {e2}")
+                return False
         
         # Write to file
         with open(OUTPUT_KML, 'w', encoding='utf-8') as f:
