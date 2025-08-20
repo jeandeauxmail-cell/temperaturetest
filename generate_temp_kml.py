@@ -1,18 +1,26 @@
 #!/usr/bin/env python3
 """
 Builds a live KML NetworkLink for the NOAA NDFD CONUS temperature layer
-using the current UTC time minus one hour.  Works in any year/date.
+using the current UTC time minus one hour and the updated (working) WMS
+endpoint for temperature.
 """
 
 import datetime
 
-# Base WMS endpoint
-WMS_BASE = "https://digital.weather.gov/ndfd/wms"
+# ✅ Updated (working) WMS endpoint for NDFD temperature
+WMS_BASE = (
+    "https://mapservices.weather.noaa.gov/raster/services/"
+    "NDFD/NDFD_temp/MapServer/WMSServer"
+)
+
+# Layer name for current temperature (CONUS)
 LAYER = "ndfd.conus.temp"
+
+# Output KML file name
 OUTPUT_KML = "conus_temp_live.kml"
 
 def build_kml():
-    # Current UTC time minus one hour, rounded to the nearest hour
+    # Current UTC time minus one hour, rounded down to the hour
     now_utc = datetime.datetime.utcnow()
     dt = now_utc.replace(minute=0, second=0, microsecond=0) - datetime.timedelta(hours=1)
     time_value = dt.isoformat() + "Z"
@@ -25,7 +33,7 @@ def build_kml():
         f"&time={time_value}"
     )
 
-    kml = f"""<?xml version="1.0" encoding="UTF-8"?>
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2">
   <Document>
     <name>Live CONUS Temperature (NDFD)</name>
@@ -48,14 +56,14 @@ def build_kml():
       <screenXY  x="0.02" y="0.02" xunits="fraction" yunits="fraction"/>
       <size      x="0"  y="0" xunits="pixels" yunits="pixels"/>
     </ScreenOverlay>
-
   </Document>
-</kml>
-"""
-    return kml
+</kml>"""
 
 def main():
     kml = build_kml()
     with open(OUTPUT_KML, "w", encoding="utf-8") as f:
         f.write(kml)
-    print
+    print(f"Wrote {OUTPUT_KML}")
+
+if __name__ == "__main__":
+    main()
