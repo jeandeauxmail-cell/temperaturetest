@@ -181,6 +181,15 @@ def main():
         # Generate KML
         kml_content = create_kml(image_url, latest_time_ms)
         
+        # Validate XML before writing
+        try:
+            import xml.etree.ElementTree as ET
+            ET.fromstring(kml_content)
+            print("✓ KML XML is valid!")
+        except ET.ParseError as e:
+            print(f"✗ KML XML validation failed: {e}")
+            return False
+        
         # Write to file
         with open(OUTPUT_KML, 'w', encoding='utf-8') as f:
             f.write(kml_content)
