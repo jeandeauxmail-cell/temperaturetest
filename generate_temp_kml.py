@@ -15,6 +15,7 @@ ENDPOINTS = [
     "https://nowcoast.noaa.gov/arcgis/rest/services/nowcoast/forecast_meteoceanhydro_sfc_ndfd_time/MapServer",
     "https://idpgis.ncep.noaa.gov/arcgis/rest/services/NWS_Forecasts_Guidance_Warnings/NDFD_temp/MapServer"
 ]
+
 OUTPUT_KML = "conus_temp_live.kml"
 
 def find_working_endpoint():
@@ -147,21 +148,34 @@ def create_kml(image_url, timestamp_ms):
 
 def main():
     """Main execution function"""
-    print("Fetching latest NDFD temperature data...")
+    print("Finding working NDFD temperature endpoint...")
     
     try:
+        # Find a working endpoint
+        base_url = find_working_endpoint()
+        
         # Get the latest timestamp
-        latest_time_ms = get_latest_time()
+        latest_time_ms = get_latest_time(base_url)
         print(f"Using timestamp: {latest_time_ms}")
         
         # Build the image URL
-        image_url = build_image_url(latest_time_ms)
-        print(f"Image URL: {image_url[:100]}...")
+        image_url = build_image_url(base_url, latest_time_ms)
+        print(f"Testing image URL...")
         
         # Test if the image URL works
         test_resp = requests.head(image_url, timeout=30)
         if test_resp.status_code != 200:
             print(f"Warning: Image URL returned status {test_resp.status_code}")
+            # Try without the time parameter as fallback
+            image_url_no_time = build_image_url(base_url, None).replace('&time=None', '')
+            test_resp2 = requests.head(image_url_no_time, timeout=30)
+            if test_resp2.status_code == 200:
+                image_url = image_url_no_time
+                print("Using image URL without time parameter")
+            else:
+                print(f"Both URLs failed. Proceeding anyway...")
+        
+        print(f"Final image URL: {image_url[:100]}...")
         
         # Generate KML
         kml_content = create_kml(image_url, latest_time_ms)
@@ -197,6 +211,8 @@ def main():
         
     except Exception as e:
         print(f"Error: {e}")
+        import traceback
+        traceback.print_exc()
         return False
     
     return True
