@@ -9,137 +9,37 @@ on:
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
-
-# Allow only one concurrent deployment
-concurrency:
-  group: "pages"
-  cancel-in-progress: false
 
 jobs:
-  generate-and-deploy:
+  build-and-deploy:
     runs-on: ubuntu-latest
     
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set up Python
+      - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: |
-          pip install requests urllib3 certifi
+        run: pip install requests
 
-      - name: Generate KML files
-        id: generate
+      - name: Generate KML
         run: |
-          echo "Starting KML generation..."
           python generate_temp_kml.py
-          
-          # Verify files were created
-          ls -la *.kml || echo "No KML files found"
-          
-          if [ -f "conus_temp_live.kml" ]; then
-            echo "✓ Main KML file created ($(wc -c < conus_temp_live.kml) bytes)"
-            echo "kml_created=true" >> $GITHUB_OUTPUT
-          else
-            echo "❌ Main KML file not created"
-            echo "kml_created=false" >> $GITHUB_OUTPUT
-            exit 1
-          fi
-
-      - name: Create deployment directory
-        run: |
-          mkdir -p _site
-          cp *.kml _site/ 2>/dev/null || echo "No KML files to copy"
-          cp *.html _site/ 2>/dev/null || echo "No HTML files to copy"
-          
-          # Create index.html if it doesn't exist
-          if [ ! -f "_site/index.html" ]; then
-            cat > _site/index.html << 'EOF'
-          <!DOCTYPE html>
-          <html>
-          <head>
-            <title>CONUS Temperature KML</title>
-            <meta charset="UTF-8">
-            <meta http-equiv="refresh" content="1800">
-            <style>
-              body { font-family: Arial, sans-serif; margin: 40px; line-height: 1.6; }
-              .download-link { 
-                display: inline-block; 
-                padding: 10px 20px; 
-                background: #007cba; 
-                color: white; 
-                text-decoration: none; 
-                border-radius: 5px; 
-                margin: 10px 5px;
-              }
-              .download-link:hover { background: #005a87; }
-              .status { padding: 15px; background: #f0f8ff; border: 1px solid #007cba; border-radius: 5px; margin: 20px 0; }
-            </style>
-          </head>
-          <body>
-            <h1>🌡️ Live CONUS Temperature KML</h1>
-            <div class="status">
-              <strong>Last Updated:</strong> <script>document.write(new Date().toUTCString())</script>
-            </div>
-            
-            <h2>Download KML Files</h2>
-            <p>
-              <a href="network_link.kml" class="download-link">📡 Network Link KML</a>
-              <br><small>Use this file in Google Earth - it will auto-update every 30 minutes</small>
-            </p>
-            
-            <p>
-              <a href="conus_temp_live.kml" class="download-link">🗺️ Direct KML</a>
-              <br><small>Direct temperature data (manual refresh needed)</small>
-            </p>
-            
-            <h2>How to Use</h2>
-            <ol>
-              <li>Download the <strong>Network Link KML</strong> file above</li>
-              <li>Open Google Earth</li>
-              <li>Go to File → Open and select the downloaded file</li>
-              <li>The temperature layer will appear and refresh automatically every 30 minutes</li>
-            </ol>
-            
-            <h2>About</h2>
-            <p>This service provides live temperature data for the Continental United States (CONUS) using NOAA's National Digital Forecast Database (NDFD). The data updates every 30 minutes automatically.</p>
-            
-            <p><small>Data source: NOAA National Weather Service</small></p>
-          </body>
-          </html>
-          EOF
-          fi
-          
-          echo "Contents of _site directory:"
-          ls -la _site/
-
-      - name: Setup Pages
-        uses: actions/configure-pages@v4
-
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: '_site'
+          echo "Files created:"
+          ls -la *.kml *.html 2>/dev/null || echo "Some files missing"
 
       - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
-
-      - name: Report deployment status
-        if: always()
-        run: |
-          echo "=== Deployment Summary ==="
-          if [ "${{ steps.deployment.outcome }}" == "success" ]; then
-            echo "✅ SUCCESS: KML files deployed to GitHub Pages"
-            echo "🌐 Available at: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
-            echo "📡 Network Link: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/network_link.kml"
-          else
-            echo "❌ DEPLOYMENT FAILED"
-            exit 1
-          fi
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: .
+          destination_dir: .
+          keep_files: false
+          force_orphan: true
+          exclude_assets: '.github,generate_temp_kml.py,README.md'
