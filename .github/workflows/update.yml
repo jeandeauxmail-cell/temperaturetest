@@ -2,7 +2,7 @@ name: Update CONUS Temperature KML
 
 on:
   schedule:
-    - cron: "*/60 * * * *"  # every 30 minutes
+    - cron: "*/30 * * * *"  # every 30 minutes
   workflow_dispatch:
 
 permissions:
@@ -16,7 +16,7 @@ jobs:
       - name: Checkout (gh-pages branch)
         uses: actions/checkout@v3
         with:
-          ref: gh-pages
+          ref: main
 
       - name: Set up Python
         uses: actions/setup-python@v4
