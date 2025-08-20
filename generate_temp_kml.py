@@ -1,31 +1,45 @@
 #!/usr/bin/env python3
 """
-Builds a live KML NetworkLink for the NOAA NDFD CONUS temperature layer
-using the current UTC time minus one hour and the updated (working) WMS
-endpoint for temperature.  Includes an opacity directive to guarantee
-visibility in Google Earth.
+Fetches the NDFD temperature GetCapabilities, extracts the latest
+<Extent name="time"> value for the `ndfd.conus.temp` layer,
+and builds a live KML NetworkLink pointing to that timestamp.
 """
 
-import datetime
+import requests
+import xml.etree.ElementTree as ET
 
-# ✅ Updated (working) WMS endpoint
-WMS_BASE = "https://mapservices.weather.noaa.gov/raster/services/NDFD/NDFD_temp/MapServer/WMSServer"
+# Working WMS endpoint
+WMS_BASE = (
+    "https://mapservices.weather.noaa.gov/raster/services/"
+    "NDFD/NDFD_temp/MapServer/WMSServer"
+)
 
 LAYER = "ndfd.conus.temp"
 OUTPUT_KML = "conus_temp_live.kml"
 
-def build_kml():
-    # Use the current UTC hour minus one hour (rounded down)
-    now_utc = datetime.datetime.utcnow()
-    dt = now_utc.replace(minute=0, second=0, microsecond=0) - datetime.timedelta(hours=1)
-    time_value = dt.isoformat() + "Z"
+def get_latest_time():
+    caps_url = f"{WMS_BASE}?service=WMS&request=GetCapabilities&version=1.3.0"
+    resp = requests.get(caps_url, timeout=30)
+    resp.raise_for_status()
 
-    bbox = "-14200679.12,2500000,-7400000,6505689.94"  # EPSG:3857 CONUS
+    ns = {"wms": "http://www.opengis.net/wms"}
+    root = ET.fromstring(resp.content)
+    for lyr in root.findall(".//wms:Layer", ns):
+        name_elt = lyr.find("wms:Name", ns)
+        if name_elt is not None and name_elt.text == LAYER:
+            time_extent = lyr.find("wms:Extent[@name='time']", ns)
+            if time_extent is not None and time_extent.text:
+                times = time_extent.text.strip().split(",")
+                return times[-1]
+
+    raise RuntimeError("Could not find <Extent name='time'> for layer.")
+
+def build_kml(time_value):
+    bbox = "-14200679.12,2500000,-7400000,6505689.94"
     href = (
         f"{WMS_BASE}?service=WMS&version=1.3.0&request=GetMap"
         f"&layers={LAYER}&styles=&crs=EPSG:3857&bbox={bbox}"
-        f"&width=1024&height=768&format=image/png&transparent=true"
-        f"&opacity=1"
+        f"&width=1024&height=768&format=image/png&transparent=true&opacity=1"
         f"&time={time_value}"
     )
 
@@ -33,7 +47,6 @@ def build_kml():
 <kml xmlns="http://www.opengis.net/kml/2.2">
   <Document>
     <name>Live CONUS Temperature (NDFD)</name>
-
     <NetworkLink>
       <name>Current Temperature (NDFD)</name>
       <Link>
@@ -43,7 +56,6 @@ def build_kml():
       </Link>
     </NetworkLink>
 
-    <!-- Legend Overlay -->
     <ScreenOverlay>
       <name>Legend</name>
       <Icon>
@@ -53,15 +65,15 @@ def build_kml():
       <screenXY  x="0.02" y="0.02" xunits="fraction" yunits="fraction"/>
       <size      x="0"  y="0" xunits="pixels" yunits="pixels"/>
     </ScreenOverlay>
-
   </Document>
 </kml>"""
 
 def main():
-    kml = build_kml()
+    latest_time = get_latest_time()
+    print(f"Using latest valid timestamp: {latest_time}")
+    kml = build_kml(latest_time)
     with open(OUTPUT_KML, "w", encoding="utf-8") as f:
         f.write(kml)
-    print(f"Wrote {OUTPUT_KML}")
 
 if __name__ == "__main__":
     main()
