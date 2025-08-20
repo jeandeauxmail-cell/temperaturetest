@@ -10,14 +10,10 @@ from datetime import datetime, timezone
 import urllib.parse
 
 # Current working NDFD endpoints (try in order of preference)
-ENDPOINTS = [
-    "https://mapservices.weather.noaa.gov/raster/rest/services/NDFD/NDFD_temp/MapServer",
-    "https://nowcoast.noaa.gov/arcgis/rest/services/nowcoast/forecast_meteoceanhydro_sfc_ndfd_time/MapServer",
-    "https://idpgis.ncep.noaa.gov/arcgis/rest/services/NWS_Forecasts_Guidance_Warnings/NDFD_temp/MapServer"
-]
+BASE_URL = "https://mapservices.weather.noaa.gov/raster/rest/services/NDFD/NDFD_temp/MapServer"
 
 OUTPUT_KML = "conus_temp_live.kml"
-
+'''
 def find_working_endpoint():
     """Find the first working NDFD endpoint"""
     for base_url in ENDPOINTS:
@@ -32,7 +28,7 @@ def find_working_endpoint():
             continue
     
     raise Exception("No working NDFD endpoints found!")
-
+'''
 def get_latest_time(base_url):
     """Get the most recent available timestamp from the service"""
     try:
