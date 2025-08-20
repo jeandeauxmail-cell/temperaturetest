@@ -46,29 +46,33 @@ def get_latest_time(base_url):
         return int(now.timestamp() * 1000)
 
 def build_image_url(base_url, time_ms):
-    """Build the proper image export URL"""
-    # Use the MapServer export endpoint
+    """Build a simpler image export URL that's XML-friendly"""
+    # Use the MapServer export endpoint with minimal parameters
     export_endpoint = f"{base_url}/export"
     
-    # Parameters for the image request - key fix: specify the correct layers
+    # Simplified parameters - avoid complex URL encoding
     params = {
-        'bbox': '-130,20,-60,55',  # CONUS bounding box
-        'size': '1200,800',        # Higher resolution
+        'bbox': '-130,20,-60,55',    # No URL encoding needed for simple numbers
+        'size': '800,600',           # Smaller size, simple numbers
         'format': 'png',
         'f': 'image',
-        'transparent': 'true',     # Changed to true for proper overlay
-        'imageSR': '4326',         # WGS84 coordinate system
-        'bboxSR': '4326',
-        'layers': 'show:0,1,2',    # Show temperature layers (TempF layers)
-        'dpi': '96'
+        'layers': 'show:0',          # Just show first layer
+        'imageSR': '4326',
+        'bboxSR': '4326'
     }
     
-    # Only add time if we have a valid timestamp
+    # Only add time if we have a valid timestamp - and keep it simple
     if time_ms and str(time_ms) != 'None':
-        params['time'] = str(time_ms)
+        # Round timestamp to avoid long numbers
+        rounded_time = int(time_ms / 1000) * 1000
+        params['time'] = str(rounded_time)
     
-    # Build URL with proper encoding
-    query_string = urllib.parse.urlencode(params)
+    # Build URL manually to avoid urllib's aggressive encoding
+    param_parts = []
+    for key, value in params.items():
+        param_parts.append(f"{key}={value}")
+    
+    query_string = "&".join(param_parts)
     return f"{export_endpoint}?{query_string}"
 
 def create_kml(image_url, timestamp_ms):
