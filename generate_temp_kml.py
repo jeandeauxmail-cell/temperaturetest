@@ -148,7 +148,7 @@ def main():
     
     try:
         # Find a working endpoint
-        base_url = find_working_endpoint()
+        base_url = BASE_URL
         
         # Get the latest timestamp
         latest_time_ms = get_latest_time(base_url)
