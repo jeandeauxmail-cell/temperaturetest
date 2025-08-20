@@ -8,10 +8,8 @@ endpoint for temperature.
 import datetime
 
 # ✅ Updated (working) WMS endpoint for NDFD temperature
-WMS_BASE = (
-    "https://mapservices.weather.noaa.gov/raster/services/"
-    "NDFD/NDFD_temp/MapServer/WMSServer"
-)
+
+WMS_BASE = "https://mapservices.weather.noaa.gov/raster/services/NDFD/NDFD_temp/MapServer/WMSServer"
 
 # Layer name for current temperature (CONUS)
 LAYER = "ndfd.conus.temp"
