@@ -201,7 +201,7 @@ def main():
             
             # Use CDATA section for the URL instead
             escaped_url = f"<![CDATA[{image_url}]]>"
-            alt_kml = kml_content.replace(f"<href>{xml.sax.saxutils.escape(image_url)}</href>", 
+            alt_kml = kml_content.replace(f"<href>{image_url.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')}</href>", 
                                        f"<href>{escaped_url}</href>")
             
             try:
