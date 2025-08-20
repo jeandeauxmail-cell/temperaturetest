@@ -1,54 +1,62 @@
 #!/usr/bin/env python3
 """
-Generates a live KML NetworkLink for the CONUS current temperature
-layer using the ArcGIS ImageServer endpoint
-(working in Google Earth) and the latest valid timestamp from the
-<Extent name="time"> element.
+Fetches the latest valid timestamp (timeExtent) from the CONUS ImageServer
+and generates a KML file containing a NetworkLink to a GroundOverlay so that
+Google Earth will actually display the image.
 """
 
 import requests
-import xml.etree.ElementTree as ET
+import json
+from datetime import datetime
 
-# ImageServer (Google Earth-friendly) endpoint
+# ArcGIS ImageServer endpoint (Google Earth friendly)
 BASE_URL = "https://idpgis.ncep.noaa.gov/arcgis/rest/services/NDFDTemps/CONUS_Temp/ImageServer"
 
-# Output KML file
 OUTPUT_KML = "conus_temp_live.kml"
 
 def get_latest_time():
-    # Use the same endpoint but call "GetCapabilities" to read the extent info
-    caps_url = f"{BASE_URL}?f=pjson"
-    resp = requests.get(caps_url, timeout=30)
+    info_url = f"{BASE_URL}?f=pjson"
+    resp = requests.get(info_url, timeout=30)
     resp.raise_for_status()
     data = resp.json()
-    # Extent values are in data["timeInfo"]["timeExtent"] list (start, end, interval)
     start, end, interval = data["timeInfo"]["timeExtent"]
-    # Use 'end' minus one interval
-    end_ms = end - interval
-    # ArcGIS returns milliseconds since epoch -> convert to ISO string
-    from datetime import datetime
-    t = datetime.utcfromtimestamp(end_ms / 1000.0)
-    return t.isoformat() + "Z"
+    # Use the last published time by subtracting one interval
+    latest_ms = end - interval
+    dt = datetime.utcfromtimestamp(latest_ms / 1000.0)
+    return dt.isoformat() + "Z"
 
 def build_kml(time_value):
-    # CONUS bbox in EPSG:4326 (ImageServer is WGS84 by default)
-    bbox = "-125,24,-66,49"
-    # Build exportImage URL
+    # ImageServer exportImage request
     img_url = (
-     f"{BASE_URL}/exportImage?bbox={bbox}&size=1024,768"
-     f"&format=png&transparent=true&f=image&time={time_value}"
+        f"{BASE_URL}/exportImage?bbox=-125,24,-66,49"
+        f"&size=1024,768&f=image&transparent=true"
+        f"&format=png&time={time_value}"
     )
 
+    # KML with a GroundOverlay (wrapped in a NetworkLink so it refreshes)
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2">
   <Document>
-    <name>Live CONUS Temperature (NDFD - ImageServer)</name>
+    <name>Live CONUS Temperature (NDFD ImageServer)</name>
+
     <NetworkLink>
-      <name>Current Temperature (ImageServer)</name>
+      <name>Current Temperature Image Overlay</name>
+      <refreshInterval>900</refreshInterval>
+      <refreshMode>onInterval</refreshMode>
       <Link>
-        <href><![CDATA[{img_url}]]></href>
-        <refreshMode>onInterval</refreshMode>
-        <refreshInterval>900</refreshInterval>
+        <href><![CDATA[data:text/xml,
+<GroundOverlay>
+  <name>Temperature Overlay</name>
+  <Icon>
+    <href>{img_url}</href>
+  </Icon>
+  <LatLonBox>
+    <north>49</north>
+    <south>24</south>
+    <east>-66</east>
+    <west>-125</west>
+  </LatLonBox>
+</GroundOverlay>]]></href>
       </Link>
     </NetworkLink>
 
@@ -59,17 +67,18 @@ def build_kml(time_value):
       </Icon>
       <overlayXY x="0" y="0" xunits="fraction" yunits="fraction"/>
       <screenXY  x="0.02" y="0.02" xunits="fraction" yunits="fraction"/>
-      <size      x="0" y="0" xunits="pixels" yunits="pixels"/>
+      <size      x="0"  y="0" xunits="pixels" yunits="pixels"/>
     </ScreenOverlay>
+
   </Document>
 </kml>"""
 
 def main():
-    ts = get_latest_time()
-    print("Using time:", ts)
-    kml = build_kml(ts)
-    with open("conus_temp_live.kml", "w", encoding="utf-8") as f:
+    latest = get_latest_time()
+    kml = build_kml(latest)
+    with open(OUTPUT_KML, "w", encoding="utf-8") as f:
         f.write(kml)
+    print("Wrote", OUTPUT_KML)
 
 if __name__ == "__main__":
     main()
