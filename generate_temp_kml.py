@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
 Fetches the NDFD temperature GetCapabilities, extracts the latest
-<Extent name="time"> value for the `ndfd.conus.temp` layer,
-and builds a live KML NetworkLink pointing to that timestamp.
+valid timestamp for the `ndfd.conus.temp` layer (using the second-to-last
+value from the <Extent name="time"> list), and builds a live KML
+NetworkLink pointing to that timestamp.
 """
 
 import requests
@@ -30,7 +31,10 @@ def get_latest_time():
             time_extent = lyr.find("wms:Extent[@name='time']", ns)
             if time_extent is not None and time_extent.text:
                 times = time_extent.text.strip().split(",")
-                return times[-1]
+                if len(times) >= 2:
+                    # Use the second-to-last value (last value is usually the range endpoint)
+                    return times[-2]
+                return times[0]
 
     raise RuntimeError("Could not find <Extent name='time'> for layer.")
 
