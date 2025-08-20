@@ -16,6 +16,16 @@ NDFD_ENDPOINTS = [
     "https://idpgis.ncep.noaa.gov/arcgis/rest/services/NWS_Forecasts_Guidance_Warnings/NDFD_temp/MapServer"
 ]
 
+# Alternative: Try WMS service as backup
+WMS_ENDPOINTS = [
+    {
+        'name': 'NDFD WMS',
+        'url': 'https://digital.weather.gov/wms.php',
+        'layer': 'temp',
+        'format': 'image/png'
+    }
+]
+
 OUTPUT_KML = "conus_temp_live.kml"
 NETWORK_KML = "network_link.kml"
 
@@ -41,6 +51,33 @@ def test_service_endpoint(base_url):
         print(f"✗ Service failed: {base_url} - {e}")
         return False, None
 
+def try_wms_service():
+    """Try WMS service as alternative to MapServer"""
+    wms_config = WMS_ENDPOINTS[0]
+    
+    params = {
+        'service': 'WMS',
+        'version': '1.3.0',
+        'request': 'GetMap',
+        'layers': wms_config['layer'],
+        'styles': '',
+        'width': '800',
+        'height': '600',
+        'crs': 'EPSG:4326',
+        'bbox': '20,-130,55,-60',  # Note: WMS 1.3.0 uses lat,lon order for EPSG:4326
+        'format': wms_config['format'],
+        'transparent': 'true'
+    }
+    
+    wms_url = f"{wms_config['url']}?" + urllib.parse.urlencode(params)
+    print(f"\nTrying WMS service: {wms_url}")
+    
+    if test_image_url(wms_url):
+        print("✓ WMS service works!")
+        return wms_url, wms_config['name']
+    else:
+        print("✗ WMS service failed")
+        return None, None
 def get_working_endpoint():
     """Find the first working NDFD endpoint"""
     for endpoint in NDFD_ENDPOINTS:
@@ -48,6 +85,12 @@ def get_working_endpoint():
         working, service_info = test_service_endpoint(endpoint)
         if working:
             return endpoint, service_info
+    
+    # Try WMS as fallback
+    print("\nMapServer endpoints failed, trying WMS...")
+    wms_url, wms_name = try_wms_service()
+    if wms_url:
+        return wms_url, {'mapName': wms_name, 'layers': [], 'wms': True}
     
     raise Exception("No working NDFD endpoints found!")
 
@@ -99,20 +142,58 @@ def build_image_url(base_url, time_ms, service_info):
             print(f"Using temperature layer: {layer.get('name')} (ID: {temp_layer_id})")
             break
     
-    # Build parameters
-    params = {
-        'bbox': '-130,20,-60,55',  # CONUS bounds
-        'size': '1024,768',        # Good resolution
-        'format': 'png',
-        'f': 'image',
-        'layers': f'show:{temp_layer_id}',
-        'imageSR': '4326',         # WGS84
-        'bboxSR': '4326',
-        'transparent': 'true',
-        'dpi': '96'
-    }
+    # Try multiple parameter combinations to find one that works
+    param_sets = [
+        # Option 1: Simplified parameters
+        {
+            'bbox': '-130,20,-60,55',
+            'size': '800,600',
+            'format': 'png32',
+            'f': 'image',
+            'layers': f'show:{temp_layer_id}',
+            'imageSR': '4326',
+            'bboxSR': '4326',
+            'transparent': 'true'
+        },
+        # Option 2: Without time parameter
+        {
+            'bbox': '-130,20,-60,55',
+            'size': '800,600',
+            'format': 'png',
+            'f': 'image',
+            'layers': f'show:{temp_layer_id}',
+            'imageSR': '3857',  # Web Mercator
+            'bboxSR': '4326',
+            'transparent': 'true'
+        },
+        # Option 3: Very basic parameters
+        {
+            'bbox': '-14000000,2000000,-6000000,7000000',  # Web Mercator bounds
+            'size': '800,600',
+            'format': 'png',
+            'f': 'image',
+            'imageSR': '3857',
+            'bboxSR': '3857'
+        }
+    ]
     
-    # Add time parameter if available
+    for i, params in enumerate(param_sets):
+        # Add time parameter only to first two attempts if available
+        if i < 2 and time_ms and time_ms > 0:
+            params['time'] = str(int(time_ms))
+        
+        test_url = f"{export_endpoint}?" + urllib.parse.urlencode(params)
+        print(f"\nTrying parameter set {i+1}:")
+        print(f"URL: {test_url}")
+        
+        if test_image_url(test_url):
+            print(f"✓ Parameter set {i+1} works!")
+            return test_url
+        else:
+            print(f"✗ Parameter set {i+1} failed")
+    
+    # Fallback to first parameter set
+    params = param_sets[0]
     if time_ms and time_ms > 0:
         params['time'] = str(int(time_ms))
     
