@@ -142,9 +142,9 @@ def build_image_url(base_url, time_ms, service_info):
             print(f"Using temperature layer: {layer.get('name')} (ID: {temp_layer_id})")
             break
     
-    # Try multiple parameter combinations to find one that works
+    # Try multiple parameter combinations to find one that works without text overlay
     param_sets = [
-        # Option 1: Simplified parameters
+        # Option 1: Disable dynamic layers and text
         {
             'bbox': '-130,20,-60,55',
             'size': '800,600',
@@ -153,38 +153,64 @@ def build_image_url(base_url, time_ms, service_info):
             'layers': f'show:{temp_layer_id}',
             'imageSR': '4326',
             'bboxSR': '4326',
-            'transparent': 'true'
+            'transparent': 'true',
+            'dynamicLayers': '',  # Disable dynamic layers
+            'layerDefs': '',      # No layer definitions
+            'mapScale': '',       # No scale
+            'rotation': '',       # No rotation
+            'datumTransformations': '',
+            'layerTimeOptions': '',
+            'gdbVersion': '',
+            'historicMoment': '',
+            'mapRangeValues': '',
+            'layerRangeValues': '',
+            'layerParameterValues': ''
         },
-        # Option 2: Without time parameter
+        # Option 2: Very minimal parameters
         {
             'bbox': '-130,20,-60,55',
             'size': '800,600',
             'format': 'png',
             'f': 'image',
             'layers': f'show:{temp_layer_id}',
-            'imageSR': '3857',  # Web Mercator
+            'imageSR': '4326',
             'bboxSR': '4326',
-            'transparent': 'true'
+            'transparent': 'false'  # Try without transparency
         },
-        # Option 3: Very basic parameters
+        # Option 3: Different image format
         {
-            'bbox': '-14000000,2000000,-6000000,7000000',  # Web Mercator bounds
+            'bbox': '-130,20,-60,55',
+            'size': '800,600',
+            'format': 'jpg',  # JPG instead of PNG
+            'f': 'image',
+            'layers': f'show:{temp_layer_id}',
+            'imageSR': '4326',
+            'bboxSR': '4326'
+        },
+        # Option 4: Web Mercator projection
+        {
+            'bbox': '-14465442.4,2273030.9,-6679169.4,7361866.1',  # Web Mercator CONUS
             'size': '800,600',
             'format': 'png',
             'f': 'image',
+            'layers': f'show:{temp_layer_id}',
             'imageSR': '3857',
-            'bboxSR': '3857'
+            'bboxSR': '3857',
+            'transparent': 'true'
         }
     ]
     
     for i, params in enumerate(param_sets):
-        # Add time parameter only to first two attempts if available
-        if i < 2 and time_ms and time_ms > 0:
+        # Add time parameter only if available and for first few attempts
+        if i < 3 and time_ms and time_ms > 0:
             params['time'] = str(int(time_ms))
         
-        test_url = f"{export_endpoint}?" + urllib.parse.urlencode(params)
+        # Remove empty parameters to clean up URL
+        clean_params = {k: v for k, v in params.items() if v != ''}
+        
+        test_url = f"{export_endpoint}?" + urllib.parse.urlencode(clean_params)
         print(f"\nTrying parameter set {i+1}:")
-        print(f"URL: {test_url}")
+        print(f"URL: {test_url[:100]}...")
         
         if test_image_url(test_url):
             print(f"✓ Parameter set {i+1} works!")
@@ -193,11 +219,12 @@ def build_image_url(base_url, time_ms, service_info):
             print(f"✗ Parameter set {i+1} failed")
     
     # Fallback to first parameter set
-    params = param_sets[0]
+    params = param_sets[1]  # Use the minimal parameters as fallback
     if time_ms and time_ms > 0:
         params['time'] = str(int(time_ms))
     
-    return f"{export_endpoint}?" + urllib.parse.urlencode(params)
+    clean_params = {k: v for k, v in params.items() if v != ''}
+    return f"{export_endpoint}?" + urllib.parse.urlencode(clean_params)
 
 def test_image_url(image_url):
     """Test if the image URL returns valid data"""
