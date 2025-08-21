@@ -37,7 +37,7 @@ def build_noaa_url(forecast_time):
         "imageSR": "4326",
         "bboxSR":  "4326",
         "transparent": "true",
-        "showLabels":  "false",
+        "disableLabels":  "true",
         "time":    forecast_time
     }
     query = "&".join(f"{k}={v}" for k, v in params.items())
