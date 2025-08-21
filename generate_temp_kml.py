@@ -34,32 +34,19 @@ import json
 import urllib.parse
 
 def build_noaa_url(forecast_time):
-    # Only draw sublayer 0 (the raster) and strip labels
-    dynamic = [{
-        "id": 0,
-        "source": {
-            "type": "mapLayer",
-            "mapLayerId": 0
-        },
-        "drawingInfo": {
-            "renderer": {
-                "type": "rasterStretch",
-                "stretchType": "min-max"
-            }
-        }
-    }]
-
     params = {
-        "bbox":           f"{MIN_LON},{MIN_LAT},{MAX_LON},{MAX_LAT}",
-        "size":           f"{IMG_WIDTH},{IMG_HEIGHT}",
-        "format":         "png",
-        "f":              "image",
-        # URL-encode the JSON payload for dynamicLayers
-        "dynamicLayers":  urllib.parse.quote(json.dumps(dynamic)),
-        "imageSR":        "4326",
-        "bboxSR":         "4326",
-        "transparent":    "true",
-        "time":           forecast_time
+        "bbox":          f"{MIN_LON},{MIN_LAT},{MAX_LON},{MAX_LAT}",
+        "size":          f"{IMG_WIDTH},{IMG_HEIGHT}",
+        "format":        "png",
+        "f":             "image",
+        # only draw layer 0 (the temp grid)…
+        "layers":        "show:0",
+        # …and turn off all labels/annotations
+        "disableLabels": "true",
+        "imageSR":       "4326",
+        "bboxSR":        "4326",
+        "transparent":   "true",
+        "time":          forecast_time
     }
 
     query = "&".join(f"{k}={v}" for k, v in params.items())
