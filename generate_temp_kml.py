@@ -43,16 +43,15 @@ def build_noaa_url(forecast_time):
         }
     }]
     params = {
-        "bbox":    f"{MIN_LON},{MIN_LAT},{MAX_LON},{MAX_LAT}",
-        "size":    f"{IMG_WIDTH},{IMG_HEIGHT}",
-        "format":  "png",
-        "f":       "image",
-        "layers":  "show:0",
-        "imageSR": "4326",
-        "bboxSR":  "4326",
-        "transparent": "true",
-        "disableLabels":  "true",
-        "time":    forecast_time
+        "bbox":f"{MIN_LON},{MIN_LAT},{MAX_LON},{MAX_LAT}",
+        "size":f"{IMG_WIDTH},{IMG_HEIGHT}",
+        "format":"png",
+        "f":"image",
+        "dynamicLayers":urllib.parse.quote(json.dumps(dynamic)),
+        "imageSR":"4326",
+        "bboxSR":"4326",
+        "transparent":"true",
+        "time":forecast_time
     }
     query = "&".join(f"{k}={v}" for k, v in params.items())
     return f"{PNG_URL_BASE}?{query}"
