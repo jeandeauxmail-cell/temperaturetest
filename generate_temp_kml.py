@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import requests
 from datetime import datetime
+import urllib.parse, json
 
 # Geographic extents (CONUS)
 MIN_LON, MAX_LON = -130.0, -60.0
@@ -28,6 +29,19 @@ def get_forecast_time():
 
 # Step 3: build the NOAA export URL
 def build_noaa_url(forecast_time):
+        dynamic = [{
+        "id": 0,
+        "source": {
+            "type": "mapLayer",
+            "mapLayerId": 0
+        },
+        "drawingInfo": {
+            "renderer": {
+                "type": "rasterStretch",
+                "stretchType": "min-max"
+            }
+        }
+    }]
     params = {
         "bbox":    f"{MIN_LON},{MIN_LAT},{MAX_LON},{MAX_LAT}",
         "size":    f"{IMG_WIDTH},{IMG_HEIGHT}",
