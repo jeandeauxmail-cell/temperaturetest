@@ -3,57 +3,61 @@ import requests
 from datetime import datetime
 from pathlib import Path
 
-# 1. Configuration
+# 1. Geographic extents & image size
 MIN_LON, MAX_LON = -130.0, -60.0
 MIN_LAT, MAX_LAT =   20.0,   55.0
 IMG_WIDTH  = 1024
-IMG_HEIGHT = 512  # Maintains 2:1 aspect ratio for 70°×35°
+IMG_HEIGHT = 512    # keeps the 2:1 aspect ratio for 70°×35°
+
+# 2. Filenames & GitHub Pages URL
 PNG_FILENAME = "forecast.png"
 KML_FILENAME = "temperature-overlay.kml"
+GH_PAGES_URL = "https://jeandeauxmail-cell.github.io/temperaturetest/forecast.png"
 
-# Base WMS endpoint for NOAA NDFD temperature
+
+# 3. Correct WMS base URL (no /rest/)
 WMS_BASE = (
-    "https://mapservices.weather.noaa.gov/raster/rest/services/"
-    "NDFD/NDFD_temp/MapServer/WmsServer"
+    "https://mapservices.weather.noaa.gov/"
+    "raster/services/NDFD/NDFD_temp/MapServer/WmsServer"
 )
 
-# 2. Determine latest 3-hourly cycle timestamp (UTC)
 def get_latest_cycle_iso():
+    """Round current UTC down to the last 3‐hour forecast cycle."""
     now = datetime.utcnow()
     cycle_hour = (now.hour // 3) * 3
     cycle = now.replace(hour=cycle_hour, minute=0, second=0, microsecond=0)
     return cycle.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-# 3. Build WMS GetMap URL
 def build_wms_url(time_iso):
+    """
+    Assemble a WMS GetMap URL that returns just the temperature grid
+    with no legend or timestamps baked in.
+    """
     params = {
-        "SERVICE": "WMS",
-        "REQUEST": "GetMap",
-        "VERSION": "1.3.0",
-        "LAYERS": "0",           # temperature grid only
-        "STYLES": "",            # default styling
-        "FORMAT": "image/png",
-        "TRANSPARENT": "true",
-        "CRS": "EPSG:4326",
-        "BBOX": f"{MIN_LAT},{MIN_LON},{MAX_LAT},{MAX_LON}",
-        "WIDTH": str(IMG_WIDTH),
-        "HEIGHT": str(IMG_HEIGHT),
-        "TIME": time_iso
+        "SERVICE":    "WMS",
+        "REQUEST":    "GetMap",
+        "VERSION":    "1.1.1",              # use 1.1.1 for lon,lat BBOX order
+        "LAYERS":     "0",                  # only the temp raster layer
+        "STYLES":     "",
+        "FORMAT":     "image/png",
+        "TRANSPARENT":"true",
+        "SRS":        "EPSG:4326",          # axis order lon,lat
+        "BBOX":       f"{MIN_LON},{MIN_LAT},{MAX_LON},{MAX_LAT}",
+        "WIDTH":      str(IMG_WIDTH),
+        "HEIGHT":     str(IMG_HEIGHT),
+        "TIME":       time_iso
     }
-    # Assemble URL with query string
     qs = "&".join(f"{k}={v}" for k, v in params.items())
     return f"{WMS_BASE}?{qs}"
 
-# 4. Download the PNG from WMS
 def fetch_png(url: str, dest: Path):
-    print(f"[→] Downloading PNG from WMS:\n    {url}")
+    print(f"[→] Fetching PNG:\n    {url}")
     resp = requests.get(url)
     resp.raise_for_status()
     dest.write_bytes(resp.content)
     print(f"[✓] Saved {dest.name}")
 
-# 5. Generate KML pointing to the hosted PNG
-def build_kml_text(hosted_png_url: str) -> str:
+def build_kml_text(png_url: str) -> str:
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2">
   <Document>
@@ -61,7 +65,7 @@ def build_kml_text(hosted_png_url: str) -> str:
     <GroundOverlay>
       <name>CONUS Temperature</name>
       <Icon>
-        <href>{hosted_png_url}</href>
+        <href>{png_url}</href>
       </Icon>
       <LatLonBox>
         <north>{MAX_LAT:.6f}</north>
@@ -74,31 +78,21 @@ def build_kml_text(hosted_png_url: str) -> str:
 </kml>
 """
 
-# 6. Save KML to disk
-def save_kml(kml_text: str, dest: Path):
-    dest.write_text(kml_text, encoding="utf-8")
+def save_kml(text: str, dest: Path):
+    dest.write_text(text, encoding="utf-8")
     print(f"[✓] Wrote {dest.name}")
 
-# 7. Main workflow
 def main():
-    # a. Compute cycle time & WMS URL
-    cycle_iso = get_latest_cycle_iso()
-    print(f"⏱ Forecast cycle: {cycle_iso}")
-    wms_url = build_wms_url(cycle_iso)
+    cycle = get_latest_cycle_iso()
+    print(f"⏱ Forecast cycle: {cycle}")
 
-    # b. Download forecast.png
+    wms_url = build_wms_url(cycle)
     png_path = Path(PNG_FILENAME)
     fetch_png(wms_url, png_path)
 
-    # c. Generate & save KML
-    #    Replace with your actual GitHub Pages URL location
-    hosted_url = (
-        "https://github.com/jeandeauxmail-cell/temperaturetest/gh-pages"
-        "temperaturetest/"
-        f"{PNG_FILENAME}"
-    )
-    kml_text = build_kml_text(hosted_url)
-    save_kml(kml_text, Path(KML_FILENAME))
+    hosted_png = f"{GH_PAGES_URL}/{PNG_FILENAME}"
+    kml = build_kml_text(hosted_png)
+    save_kml(kml, Path(KML_FILENAME))
 
 if __name__ == "__main__":
     main()
