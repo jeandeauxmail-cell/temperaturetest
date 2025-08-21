@@ -2,7 +2,7 @@ name: Update CONUS Temperature KML
 
 on:
   schedule:
-    - "cron: "15 */3 * * *"
+    - cron: "15 */3 * * *"
   workflow_dispatch:
   push:
     branches: [ main ]
