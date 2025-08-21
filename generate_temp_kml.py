@@ -93,7 +93,7 @@ def main():
     # c. Generate & save KML
     #    Replace with your actual GitHub Pages URL location
     hosted_url = (
-        "https://github.com/jeandeauxmail-cell/temperaturetest/tree/gh-pages"
+        "https://github.com/jeandeauxmail-cell/temperaturetest/gh-pages"
         "temperaturetest/"
         f"{PNG_FILENAME}"
     )
