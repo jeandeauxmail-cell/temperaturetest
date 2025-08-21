@@ -1,104 +1,104 @@
 #!/usr/bin/env python3
 import requests
 from datetime import datetime
-import urllib.parse, json
-import json
-import urllib.parse
+from pathlib import Path
 
-# Geographic extents (CONUS)
+# 1. Configuration
 MIN_LON, MAX_LON = -130.0, -60.0
-MIN_LAT, MAX_LAT =  20.0,  55.0
-
-# Desired image width in pixels
-IMG_WIDTH = 1024
-
-# Filenames & URLs
+MIN_LAT, MAX_LAT =   20.0,   55.0
+IMG_WIDTH  = 1024
+IMG_HEIGHT = 512  # Maintains 2:1 aspect ratio for 70°×35°
 PNG_FILENAME = "forecast.png"
 KML_FILENAME = "temperature-overlay.kml"
-PNG_URL_BASE = "https://mapservices.weather.noaa.gov/raster/rest/services/NDFD/NDFD_temp/MapServer/export"
 
-# Step 1: calculate height to match real-world aspect ratio
-hor_span = abs(MAX_LON - MIN_LON)    # 70 degrees
-ver_span =     MAX_LAT - MIN_LAT    # 35 degrees
-IMG_HEIGHT = round(IMG_WIDTH * (ver_span / hor_span))  # 512 px
+# Base WMS endpoint for NOAA NDFD temperature
+WMS_BASE = (
+    "https://mapservices.weather.noaa.gov/raster/rest/services/"
+    "NDFD/NDFD_temp/MapServer/WmsServer"
+)
 
-# Step 2: round down to the nearest valid 3-hr forecast cycle
-def get_forecast_time():
+# 2. Determine latest 3-hourly cycle timestamp (UTC)
+def get_latest_cycle_iso():
     now = datetime.utcnow()
-    h3  = (now.hour // 3) * 3
-    ft  = now.replace(hour=h3, minute=0, second=0, microsecond=0)
-    return ft.strftime("%Y-%m-%dT%H:%M:%SZ")
+    cycle_hour = (now.hour // 3) * 3
+    cycle = now.replace(hour=cycle_hour, minute=0, second=0, microsecond=0)
+    return cycle.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-# Step 3: build the NOAA export URL
-import json
-import urllib.parse
-
-def build_noaa_url(forecast_time):
+# 3. Build WMS GetMap URL
+def build_wms_url(time_iso):
     params = {
-        "bbox":          f"{MIN_LON},{MIN_LAT},{MAX_LON},{MAX_LAT}",
-        "size":          f"{IMG_WIDTH},{IMG_HEIGHT}",
-        "format":        "png",
-        "f":             "image",
-        # only draw layer 0 (the temp grid)…
-        "layers":        "show:0",
-        # …and turn off all labels/annotations
-        "disableLabels": "true",
-        "imageSR":       "4326",
-        "bboxSR":        "4326",
-        "transparent":   "true",
-        "time":          forecast_time
+        "SERVICE": "WMS",
+        "REQUEST": "GetMap",
+        "VERSION": "1.3.0",
+        "LAYERS": "0",           # temperature grid only
+        "STYLES": "",            # default styling
+        "FORMAT": "image/png",
+        "TRANSPARENT": "true",
+        "CRS": "EPSG:4326",
+        "BBOX": f"{MIN_LAT},{MIN_LON},{MAX_LAT},{MAX_LON}",
+        "WIDTH": str(IMG_WIDTH),
+        "HEIGHT": str(IMG_HEIGHT),
+        "TIME": time_iso
     }
+    # Assemble URL with query string
+    qs = "&".join(f"{k}={v}" for k, v in params.items())
+    return f"{WMS_BASE}?{qs}"
 
-    query = "&".join(f"{k}={v}" for k, v in params.items())
-    return f"{PNG_URL_BASE}?{query}"
-
-
-# Step 4: download the image
-def download_image(url):
+# 4. Download the PNG from WMS
+def fetch_png(url: str, dest: Path):
+    print(f"[→] Downloading PNG from WMS:\n    {url}")
     resp = requests.get(url)
-    if resp.status_code == 200:
-        with open(PNG_FILENAME, "wb") as f:
-            f.write(resp.content)
-        print(f"[✓] Saved {PNG_FILENAME} ({IMG_WIDTH}×{IMG_HEIGHT}px)")
-    else:
-        print(f"[✗] Image fetch failed: HTTP {resp.status_code}")
+    resp.raise_for_status()
+    dest.write_bytes(resp.content)
+    print(f"[✓] Saved {dest.name}")
 
-# Step 5: build the KML overlay
-def build_kml():
+# 5. Generate KML pointing to the hosted PNG
+def build_kml_text(hosted_png_url: str) -> str:
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2">
   <Document>
-    <name>NOAA CONUS Temperature</name>
+    <name>NOAA CONUS Temperature (WMS)</name>
     <GroundOverlay>
-      <name>Temperature Raster</name>
+      <name>CONUS Temperature</name>
       <Icon>
-        <href>https://jeandeauxmail-cell.github.io/temperaturetest/{PNG_FILENAME}</href>
+        <href>{hosted_png_url}</href>
       </Icon>
       <LatLonBox>
-        <north>{MAX_LAT}</north>
-        <south>{MIN_LAT}</south>
-        <east>{MAX_LON}</east>
-        <west>{MIN_LON}</west>
+        <north>{MAX_LAT:.6f}</north>
+        <south>{MIN_LAT:.6f}</south>
+        <east>{MAX_LON:.6f}</east>
+        <west>{MIN_LON:.6f}</west>
       </LatLonBox>
     </GroundOverlay>
   </Document>
 </kml>
 """
 
-# Step 6: save the KML
-def save_kml(kml):
-    with open(KML_FILENAME, "w", encoding="utf-8") as f:
-        f.write(kml)
-    print(f"[✓] Saved {KML_FILENAME}")
+# 6. Save KML to disk
+def save_kml(kml_text: str, dest: Path):
+    dest.write_text(kml_text, encoding="utf-8")
+    print(f"[✓] Wrote {dest.name}")
 
-# Main
+# 7. Main workflow
 def main():
-    ft = get_forecast_time()
-    print(f"⏱ Forecast time: {ft}")
-    url = build_noaa_url(ft)
-    print(f"🔗 Fetch URL: {url}")
-    download_image(url)
-    save_kml(build_kml())
+    # a. Compute cycle time & WMS URL
+    cycle_iso = get_latest_cycle_iso()
+    print(f"⏱ Forecast cycle: {cycle_iso}")
+    wms_url = build_wms_url(cycle_iso)
+
+    # b. Download forecast.png
+    png_path = Path(PNG_FILENAME)
+    fetch_png(wms_url, png_path)
+
+    # c. Generate & save KML
+    #    Replace with your actual GitHub Pages URL location
+    hosted_url = (
+        "https://<your-username>.github.io/"
+        "temperaturetest/"
+        f"{PNG_FILENAME}"
+    )
+    kml_text = build_kml_text(hosted_url)
+    save_kml(kml_text, Path(KML_FILENAME))
 
 if __name__ == "__main__":
     main()
