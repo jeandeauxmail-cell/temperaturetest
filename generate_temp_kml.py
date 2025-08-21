@@ -4,8 +4,6 @@ Generate a KML with a live CONUS temperature overlay
 using NOAA's ArcGIS REST MapServer (export endpoint).
 """
 
-from datetime import datetime
-
 # ArcGIS REST MapServer export endpoint (CONUS temps)
 EXPORT_URL = (
     "https://mapservices.weather.noaa.gov/raster/rest/services/NDFD/NDFD_temp/MapServer/export"
@@ -17,6 +15,7 @@ EXPORT_URL = (
     "&imageSR=4326"
     "&bboxSR=4326"
     "&transparent=true"
+    "&showLabels=false"
     "&renderingRule=%7B%22rasterFunction%22%3A%22None%22%7D"
 )
 
@@ -25,7 +24,7 @@ NETWORK_LINK_KML = "network_link.kml"
 
 
 def build_overlay_kml():
-    # Wrap the export image in a GroundOverlay
+    # GroundOverlay with correct lat/lon bounds for CONUS
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2">
   <Document>
