@@ -5,7 +5,7 @@ import os
 # Constants
 PNG_FILENAME = "forecast.png"
 KML_FILENAME = "temperature-overlay.kml"
-PNG_URL = "https://jeandeauxmail-cell.github.io/temperaturetest/forecast.png"  # Update if repo or filename changes
+PNG_URL = "https://github.com/jeandeauxmail-cell/temperaturetest/blob/gh-pages/forecast.png"  # Update if repo or filename changes
 
 # Step 1: Get the latest valid 3-hour UTC forecast time
 def get_latest_forecast_time():
