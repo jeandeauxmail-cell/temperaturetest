@@ -2,6 +2,8 @@
 import requests
 from datetime import datetime
 import urllib.parse, json
+import json
+import urllib.parse
 
 # Geographic extents (CONUS)
 MIN_LON, MAX_LON = -130.0, -60.0
@@ -28,8 +30,12 @@ def get_forecast_time():
     return ft.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 # Step 3: build the NOAA export URL
+import json
+import urllib.parse
+
 def build_noaa_url(forecast_time):
-        dynamic = [{
+    # Only draw sublayer 0 (the raster) and strip labels
+    dynamic = [{
         "id": 0,
         "source": {
             "type": "mapLayer",
@@ -42,19 +48,23 @@ def build_noaa_url(forecast_time):
             }
         }
     }]
+
     params = {
-        "bbox":f"{MIN_LON},{MIN_LAT},{MAX_LON},{MAX_LAT}",
-        "size":f"{IMG_WIDTH},{IMG_HEIGHT}",
-        "format":"png",
-        "f":"image",
-        "dynamicLayers":urllib.parse.quote(json.dumps(dynamic)),
-        "imageSR":"4326",
-        "bboxSR":"4326",
-        "transparent":"true",
-        "time":forecast_time
+        "bbox":           f"{MIN_LON},{MIN_LAT},{MAX_LON},{MAX_LAT}",
+        "size":           f"{IMG_WIDTH},{IMG_HEIGHT}",
+        "format":         "png",
+        "f":              "image",
+        # URL-encode the JSON payload for dynamicLayers
+        "dynamicLayers":  urllib.parse.quote(json.dumps(dynamic)),
+        "imageSR":        "4326",
+        "bboxSR":         "4326",
+        "transparent":    "true",
+        "time":           forecast_time
     }
+
     query = "&".join(f"{k}={v}" for k, v in params.items())
     return f"{PNG_URL_BASE}?{query}"
+
 
 # Step 4: download the image
 def download_image(url):
