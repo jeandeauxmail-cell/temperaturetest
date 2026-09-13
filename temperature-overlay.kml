@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>NOAA CONUS Temperature (WMS)</name>
+    <GroundOverlay>
+      <name>CONUS Temperature</name>
+      <Icon>
+        <href>https://jeandeauxmail-cell.github.io/temperaturetest/forecast.png/forecast.png</href>
+      </Icon>
+      <LatLonBox>
+        <north>55.000000</north>
+        <south>20.000000</south>
+        <east>-60.000000</east>
+        <west>-130.000000</west>
+      </LatLonBox>
+    </GroundOverlay>
+  </Document>
+</kml>
